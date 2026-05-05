@@ -150,6 +150,47 @@ if [[ "${UPDATES_COUNT}" -gt 0 ]]; then
         log_warn "  3) Aucune session client critique en cours"
         echo ""
 
+        # Vérification PRÉ-Phase C : containers avec restart policy=no/on-failure
+        # vont mourir au restart du daemon et NE remontent PAS tout seuls.
+        # Cas réel observé en prod : Directus + Redis + MinIO sont restés Exited
+        # après Phase C + reboot car leur HostConfig.RestartPolicy.Name était "no".
+        if command -v docker >/dev/null 2>&1; then
+            FRAGILE_CONTAINERS=()
+            while IFS= read -r container; do
+                [[ -n "${container}" ]] || continue
+                policy="$(docker inspect "${container}" --format '{{.HostConfig.RestartPolicy.Name}}' 2>/dev/null)"
+                if [[ "${policy}" == "no" ]] || [[ "${policy}" == "on-failure" ]]; then
+                    FRAGILE_CONTAINERS+=("${container}")
+                fi
+            done < <(docker ps --format '{{.Names}}' 2>/dev/null)
+
+            if [[ ${#FRAGILE_CONTAINERS[@]} -gt 0 ]]; then
+                log_warn "Containers SANS auto-restart (policy=no ou on-failure) :"
+                for c in "${FRAGILE_CONTAINERS[@]}"; do
+                    log_warn "  ▸ ${c}"
+                done
+                log_warn ""
+                log_warn "Ces containers vont mourir au restart du Docker daemon (Phase C)"
+                log_warn "et ne se relanceront pas tout seuls. Idem au prochain reboot kernel."
+                echo ""
+                if ask_yes_no "Poser 'restart=unless-stopped' sur ces ${#FRAGILE_CONTAINERS[@]} container(s) maintenant ?" "y"; then
+                    for c in "${FRAGILE_CONTAINERS[@]}"; do
+                        if docker update --restart unless-stopped "${c}" >/dev/null 2>&1; then
+                            log_success "  ${c} → restart=unless-stopped"
+                        else
+                            log_warn "  ${c} : échec docker update"
+                        fi
+                    done
+                else
+                    log_warn "OK, tu prends le risque. Pour les redémarrer après Phase C :"
+                    for c in "${FRAGILE_CONTAINERS[@]}"; do
+                        log_warn "  sudo docker start ${c}"
+                    done
+                fi
+                echo ""
+            fi
+        fi
+
         if confirm_critical "Procéder à la Phase C (Docker upgrade, coupure brève) ?"; then
             # Snapshot pré-upgrade (insurance / rollback-friendly)
             SNAPSHOT_PATH="/var/log/vps-secure-pre-phaseC-$(date +%Y%m%d-%H%M%S).log"
