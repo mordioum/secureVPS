@@ -64,11 +64,29 @@ else
     fi
     
     log_success "Utilisateur ${NEW_USER} créé"
-    
+
     # Ajout sudo
     log_step "Ajout des droits sudo"
     usermod -aG sudo "${NEW_USER}"
     log_success "Droits sudo ajoutés"
+fi
+
+# Si Docker est déjà installé sur le VPS, proposer d'ajouter le user au
+# groupe docker (sinon il devra `sudo docker` à chaque fois). Cas vu en
+# prod : on sécurise un VPS où Docker tournait déjà, donc docker-install.sh
+# n'est pas exécuté et le user reste hors groupe. Pattern aligné sur
+# docker-install.sh:73-82 pour la cohérence.
+if command -v docker >/dev/null 2>&1; then
+    log_step "Configuration accès Docker"
+    if groups "${NEW_USER}" 2>/dev/null | grep -qE '(^| )docker( |$)'; then
+        log_info "${NEW_USER} déjà dans le groupe docker"
+    else
+        if ask_yes_no "Docker détecté. Ajouter ${NEW_USER} au groupe docker (lancer docker sans sudo) ?" "y"; then
+            usermod -aG docker "${NEW_USER}"
+            log_success "${NEW_USER} ajouté au groupe docker"
+            log_warn "Effet visible APRÈS déconnexion/reconnexion SSH"
+        fi
+    fi
 fi
 
 # Préparation du dossier .ssh
