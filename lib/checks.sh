@@ -122,16 +122,20 @@ detect_ufw() {
 }
 
 # Détecte fail2ban
+# `systemctl list-unit-files | grep` était fragile (B11) — on teste plutôt
+# is-active directement (vérité absolue), avec fallbacks sur fail2ban-client
+# et le fichier de service systemd.
 detect_fail2ban() {
-    if systemctl list-unit-files 2>/dev/null | grep -q "fail2ban.service"; then
+    if systemctl is-active --quiet fail2ban 2>/dev/null; then
         FAIL2BAN_INSTALLED="true"
-        if systemctl is-active --quiet fail2ban 2>/dev/null; then
-            FAIL2BAN_ACTIVE="true"
-            log_info "Fail2ban installé et actif"
-        else
-            FAIL2BAN_ACTIVE="false"
-            log_info "Fail2ban installé mais inactif"
-        fi
+        FAIL2BAN_ACTIVE="true"
+        log_info "Fail2ban installé et actif"
+    elif command -v fail2ban-client >/dev/null 2>&1 \
+        || [[ -f /lib/systemd/system/fail2ban.service ]] \
+        || [[ -f /etc/systemd/system/fail2ban.service ]]; then
+        FAIL2BAN_INSTALLED="true"
+        FAIL2BAN_ACTIVE="false"
+        log_info "Fail2ban installé mais inactif"
     else
         FAIL2BAN_INSTALLED="false"
         FAIL2BAN_ACTIVE="false"

@@ -73,8 +73,15 @@ log_step "3. CONFIGURATION SSH"
 detect_ssh_socket_activation
 
 echo ""
-echo -e "  ${BOLD}Configuration sshd_config principal${RESET} :"
-grep -E "^(Port|PermitRootLogin|PasswordAuthentication|PubkeyAuthentication|AllowUsers|MaxAuthTries)" /etc/ssh/sshd_config 2>/dev/null | sed 's/^/    ▸ /' || echo "    (paramètres par défaut)"
+# Affiche la config SSH **effective** (résolue avec les overrides sshd_config.d/),
+# pas seulement le fichier principal — sinon on voit "PermitRootLogin yes" alors
+# qu'un override l'a désactivé.
+echo -e "  ${BOLD}Configuration SSH effective (sshd -T)${RESET} :"
+if SSHD_EFFECTIVE="$(sshd -T 2>/dev/null)"; then
+    echo "${SSHD_EFFECTIVE}" | grep -iE "^(port|permitrootlogin|passwordauthentication|pubkeyauthentication|allowusers|maxauthtries) " | sed 's/^/    ▸ /'
+else
+    echo "    (sshd -T indisponible — config par défaut)"
+fi
 
 echo ""
 echo -e "  ${BOLD}Fichiers override (sshd_config.d)${RESET} :"
@@ -178,18 +185,21 @@ log_section "ANALYSE & RECOMMANDATIONS"
 ISSUES=0
 RECOMMENDATIONS=()
 
-# Check 1 : Root login
-if grep -q "^PermitRootLogin yes" /etc/ssh/sshd_config 2>/dev/null; then
+# Récupérer la config SSH effective (résout les overrides sshd_config.d/)
+# pour éviter les faux positifs : sshd_config principal peut avoir
+# `PermitRootLogin yes` alors qu'un override le désactive (B12).
+SSHD_T="$(sshd -T 2>/dev/null || true)"
+
+# Check 1 : Root login (effectif, pas le fichier principal seul)
+if echo "${SSHD_T}" | grep -qiE '^permitrootlogin yes$'; then
     RECOMMENDATIONS+=("${CROSS} Désactiver le login root SSH (PermitRootLogin no)")
     ((++ISSUES))
 fi
 
-# Check 2 : Password auth
-if ! grep -q "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null; then
-    if ! grep -rq "^PasswordAuthentication no" /etc/ssh/sshd_config.d/ 2>/dev/null; then
-        RECOMMENDATIONS+=("${CROSS} Désactiver l'authentification par mot de passe SSH")
-        ((++ISSUES))
-    fi
+# Check 2 : Password auth (effectif)
+if echo "${SSHD_T}" | grep -qiE '^passwordauthentication yes$'; then
+    RECOMMENDATIONS+=("${CROSS} Désactiver l'authentification par mot de passe SSH")
+    ((++ISSUES))
 fi
 
 # Check 3 : SSH port
