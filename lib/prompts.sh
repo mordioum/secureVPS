@@ -33,27 +33,31 @@ ask_yes_no() {
 # Demande une valeur texte
 # Usage: ask_input "Question" "default_value" "validation_function"
 ask_input() {
+    # Cette fonction est appelée via $(ask_input ...) — donc seule la valeur
+    # finale doit aller sur stdout. Les prompts vont sur stderr (>&2), sinon
+    # ils seraient capturés et concaténés à la valeur (bug B8).
     local question="$1"
     local default="${2:-}"
     local validator="${3:-}"
     local answer
-    
+
     while true; do
         if [[ -n "${default}" ]]; then
-            printf "%b%s%b ${DIM}(défaut: %s)${RESET}: " "${BOLD}" "${question}" "${RESET}" "${default}"
+            # shellcheck disable=SC2059
+            printf "%b%s%b ${DIM}(défaut: %s)${RESET}: " "${BOLD}" "${question}" "${RESET}" "${default}" >&2
         else
-            printf "%b%s%b: " "${BOLD}" "${question}" "${RESET}"
+            printf "%b%s%b: " "${BOLD}" "${question}" "${RESET}" >&2
         fi
-        
+
         read -r answer
         answer="${answer:-${default}}"
-        
+
         # Si pas de validation, on accepte
         if [[ -z "${validator}" ]]; then
             echo "${answer}"
             return 0
         fi
-        
+
         # Sinon, on valide avec la fonction fournie
         if "${validator}" "${answer}"; then
             echo "${answer}"
@@ -65,13 +69,14 @@ ask_input() {
 }
 
 # Demande un mot de passe (caché)
+# Idem ask_input : prompts sur stderr, valeur sur stdout (capturable via $()).
 ask_password() {
     local question="$1"
     local password
-    
-    printf "%b%s%b: " "${BOLD}" "${question}" "${RESET}"
+
+    printf "%b%s%b: " "${BOLD}" "${question}" "${RESET}" >&2
     read -rs password
-    echo  # nouvelle ligne après l'input caché
+    echo >&2  # nouvelle ligne après l'input caché (sur stderr, pas capturée)
     echo "${password}"
 }
 
