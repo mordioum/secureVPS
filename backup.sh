@@ -45,23 +45,53 @@ log_info "Dossier de backup : ${BACKUP_DIR}"
 
 log_step "1. Détection des containers DB"
 
-# PostgreSQL / PostGIS
+# Détection multi-critères (env vars > image > nom). Cumul des trois pour
+# attraper les containers nommés sans convention (ex: fhs_jogdb_1 → MySQL).
+# Découvert en prod : un MySQL appelé "jogdb" était passé entre les mailles
+# de la regex initiale qui ne cherchait que "mysql|mariadb" dans le nom.
 PG_CONTAINERS=()
-while IFS= read -r container; do
-    [[ -n "${container}" ]] && PG_CONTAINERS+=("${container}")
-done < <(docker ps --format "{{.Names}}" | grep -iE "postgres|postgis" || true)
-
-# MySQL / MariaDB
 MYSQL_CONTAINERS=()
-while IFS= read -r container; do
-    [[ -n "${container}" ]] && MYSQL_CONTAINERS+=("${container}")
-done < <(docker ps --format "{{.Names}}" | grep -iE "mysql|mariadb" || true)
-
-# MongoDB
 MONGO_CONTAINERS=()
+
+is_pg_container() {
+    local env="$1" image="$2" name="$3"
+    echo "${env}" | grep -qE '^POSTGRES_(USER|PASSWORD|DB)=' && return 0
+    echo "${image}" | grep -qiE '(^|/)(postgres|postgis)(:|$)' && return 0
+    echo "${name}" | grep -qiE '(postgres|postgis)' && return 0
+    return 1
+}
+
+is_mysql_container() {
+    local env="$1" image="$2" name="$3"
+    echo "${env}" | grep -qE '^(MYSQL|MARIADB)_(ROOT_PASSWORD|DATABASE|USER|PASSWORD)=' && return 0
+    echo "${image}" | grep -qiE '(^|/)(mysql|mariadb|percona)(:|$)' && return 0
+    echo "${name}" | grep -qiE '(mysql|mariadb)' && return 0
+    return 1
+}
+
+is_mongo_container() {
+    local env="$1" image="$2" name="$3"
+    echo "${env}" | grep -qE '^MONGO_INITDB_(ROOT_USERNAME|ROOT_PASSWORD|DATABASE)=' && return 0
+    echo "${image}" | grep -qiE '(^|/)mongo(:|$)' && return 0
+    echo "${name}" | grep -qiE 'mongo' && return 0
+    return 1
+}
+
 while IFS= read -r container; do
-    [[ -n "${container}" ]] && MONGO_CONTAINERS+=("${container}")
-done < <(docker ps --format "{{.Names}}" | grep -iE "mongo" || true)
+    [[ -n "${container}" ]] || continue
+    env="$(docker inspect "${container}" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null)"
+    image="$(docker inspect "${container}" --format '{{.Config.Image}}' 2>/dev/null)"
+
+    # Priorité Postgres > MySQL > Mongo (un container ne devrait pas matcher
+    # plusieurs catégories en pratique, mais au cas où on prend la première).
+    if is_pg_container "${env}" "${image}" "${container}"; then
+        PG_CONTAINERS+=("${container}")
+    elif is_mysql_container "${env}" "${image}" "${container}"; then
+        MYSQL_CONTAINERS+=("${container}")
+    elif is_mongo_container "${env}" "${image}" "${container}"; then
+        MONGO_CONTAINERS+=("${container}")
+    fi
+done < <(docker ps --format '{{.Names}}')
 
 # Récap
 echo ""
