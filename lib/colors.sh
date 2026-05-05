@@ -12,18 +12,22 @@ if [[ -n "${VPS_SECURE_COLORS_LOADED:-}" ]]; then
 fi
 VPS_SECURE_COLORS_LOADED=1
 
-# Détecte si le terminal supporte les couleurs
+# Détecte si le terminal supporte les couleurs.
+# Important : on utilise $'\033...' (ANSI-C quoting) pour que bash interpole
+# l'octet ESC dès la définition de la variable. Avec '\033...' (quote simple),
+# l'échappement reste littéral et `echo "${RED}foo"` afficherait "\033[0;31mfoo"
+# en texte brut sur Ubuntu (où echo n'interprète pas \033 sans le flag -e).
 if [[ -t 1 ]] && [[ -n "${TERM:-}" ]] && [[ "${TERM}" != "dumb" ]]; then
-    readonly RED='\033[0;31m'
-    readonly GREEN='\033[0;32m'
-    readonly YELLOW='\033[1;33m'
-    readonly BLUE='\033[0;34m'
-    readonly MAGENTA='\033[0;35m'
-    readonly CYAN='\033[0;36m'
-    readonly WHITE='\033[1;37m'
-    readonly BOLD='\033[1m'
-    readonly DIM='\033[2m'
-    readonly RESET='\033[0m'
+    readonly RED=$'\033[0;31m'
+    readonly GREEN=$'\033[0;32m'
+    readonly YELLOW=$'\033[1;33m'
+    readonly BLUE=$'\033[0;34m'
+    readonly MAGENTA=$'\033[0;35m'
+    readonly CYAN=$'\033[0;36m'
+    readonly WHITE=$'\033[1;37m'
+    readonly BOLD=$'\033[1m'
+    readonly DIM=$'\033[2m'
+    readonly RESET=$'\033[0m'
 else
     readonly RED=''
     readonly GREEN=''

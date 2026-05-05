@@ -65,16 +65,51 @@ if [[ "${UPDATES_COUNT}" -gt 0 ]]; then
     
     if ask_yes_no "Procéder aux mises à jour Phase A (safe) ?" "y"; then
         log_step "Phase A - Mises à jour safe"
-        
-        # Update sans kernel ni docker
+
+        # apt-get upgrade ne supporte PAS de flag --exclude. Pour exclure
+        # kernel et Docker temporairement, on utilise `apt-mark hold` autour
+        # de la commande. Cleanup via trap pour garantir l'unhold même si
+        # l'utilisateur Ctrl-C en plein milieu.
+        HOLD_PATTERNS=(
+            "linux-image-"
+            "linux-headers-"
+            "linux-modules-"
+            "linux-modules-extra-"
+            "docker-ce"
+            "docker-ce-cli"
+            "docker-buildx-plugin"
+            "docker-compose-plugin"
+            "containerd"
+            "containerd.io"
+        )
+        HELD_PACKAGES=()
+        for pattern in "${HOLD_PATTERNS[@]}"; do
+            while IFS= read -r pkg; do
+                [[ -n "${pkg}" ]] || continue
+                if apt-mark hold "${pkg}" >/dev/null 2>&1; then
+                    HELD_PACKAGES+=("${pkg}")
+                fi
+            done < <(dpkg-query -W -f='${Package}\n' 2>/dev/null | grep -E "^${pattern}" || true)
+        done
+
+        unhold_kept_packages() {
+            for pkg in "${HELD_PACKAGES[@]}"; do
+                apt-mark unhold "${pkg}" >/dev/null 2>&1 || true
+            done
+        }
+        trap unhold_kept_packages EXIT
+
+        log_info "Paquets temporairement bloqués (kernel + Docker) : ${#HELD_PACKAGES[@]}"
+
         DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
             -o Dpkg::Options::="--force-confdef" \
-            -o Dpkg::Options::="--force-confold" \
-            --exclude=linux-image-* \
-            --exclude=linux-headers-* \
-            --exclude=docker-* 2>&1 | tail -10 | sed 's/^/  /' || true
-        
-        log_success "Phase A terminée"
+            -o Dpkg::Options::="--force-confold" 2>&1 | tail -10 | sed 's/^/  /' || true
+
+        unhold_kept_packages
+        HELD_PACKAGES=()
+        trap - EXIT
+
+        log_success "Phase A terminée (kernel et Docker laissés intacts)"
     fi
 fi
 
