@@ -53,42 +53,43 @@ PG_CONTAINERS=()
 MYSQL_CONTAINERS=()
 MONGO_CONTAINERS=()
 
+# Détection : on s'appuie d'abord sur l'IMAGE (preuve du type de service).
+# Les env vars MYSQL_*/POSTGRES_*/MONGO_* ne sont PAS suffisantes : Docker
+# Compose les propage souvent aux apps clientes (ex : une app Joget a
+# MYSQL_USER/MYSQL_HOST/MYSQL_DATABASE pour se connecter au serveur, pas pour
+# servir). Elles ont aussi MYSQL_ROOT_PASSWORD parfois quand l'orchestration
+# leur passe la même variable d'environnement. Conclusion : seules l'image et
+# le nom sont des indicateurs sûrs du type de service offert.
 is_pg_container() {
-    local env="$1" image="$2" name="$3"
-    echo "${env}" | grep -qE '^POSTGRES_(USER|PASSWORD|DB)=' && return 0
-    echo "${image}" | grep -qiE '(^|/)(postgres|postgis)(:|$)' && return 0
-    echo "${name}" | grep -qiE '(postgres|postgis)' && return 0
+    local image="$1" name="$2"
+    echo "${image}" | grep -qiE '(^|/)(postgres|postgis|timescale)(:|$)' && return 0
+    echo "${name}" | grep -qiE '(postgres|postgis)(_|-|$|^)' && return 0
     return 1
 }
 
 is_mysql_container() {
-    local env="$1" image="$2" name="$3"
-    echo "${env}" | grep -qE '^(MYSQL|MARIADB)_(ROOT_PASSWORD|DATABASE|USER|PASSWORD)=' && return 0
+    local image="$1" name="$2"
     echo "${image}" | grep -qiE '(^|/)(mysql|mariadb|percona)(:|$)' && return 0
-    echo "${name}" | grep -qiE '(mysql|mariadb)' && return 0
+    echo "${name}" | grep -qiE '(mysql|mariadb|percona)(_|-|$|^)' && return 0
     return 1
 }
 
 is_mongo_container() {
-    local env="$1" image="$2" name="$3"
-    echo "${env}" | grep -qE '^MONGO_INITDB_(ROOT_USERNAME|ROOT_PASSWORD|DATABASE)=' && return 0
+    local image="$1" name="$2"
     echo "${image}" | grep -qiE '(^|/)mongo(:|$)' && return 0
-    echo "${name}" | grep -qiE 'mongo' && return 0
+    echo "${name}" | grep -qiE 'mongo(_|-|$|^)' && return 0
     return 1
 }
 
 while IFS= read -r container; do
     [[ -n "${container}" ]] || continue
-    env="$(docker inspect "${container}" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null)"
     image="$(docker inspect "${container}" --format '{{.Config.Image}}' 2>/dev/null)"
 
-    # Priorité Postgres > MySQL > Mongo (un container ne devrait pas matcher
-    # plusieurs catégories en pratique, mais au cas où on prend la première).
-    if is_pg_container "${env}" "${image}" "${container}"; then
+    if is_pg_container "${image}" "${container}"; then
         PG_CONTAINERS+=("${container}")
-    elif is_mysql_container "${env}" "${image}" "${container}"; then
+    elif is_mysql_container "${image}" "${container}"; then
         MYSQL_CONTAINERS+=("${container}")
-    elif is_mongo_container "${env}" "${image}" "${container}"; then
+    elif is_mongo_container "${image}" "${container}"; then
         MONGO_CONTAINERS+=("${container}")
     fi
 done < <(docker ps --format '{{.Names}}')
