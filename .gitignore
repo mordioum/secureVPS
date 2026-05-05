@@ -1,0 +1,18 @@
+# Logs
+*.log
+/var/log/
+
+# Backups
+ssh-backup-*/
+emergency-backup-*/
+
+# Macros utilisateur
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+test-output/
