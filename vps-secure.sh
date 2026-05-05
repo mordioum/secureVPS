@@ -28,7 +28,7 @@
 set -euo pipefail
 
 # Récupérer le chemin du script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 LIB_DIR="${SCRIPT_DIR}/lib"
 MODULES_DIR="${SCRIPT_DIR}/modules"
 
